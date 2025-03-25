@@ -29,6 +29,14 @@ Then, to run a script:
 
 <br>
 
+## Tests
+
+```bash
+go test ./...
+```
+
+<br>
+
 ## Benchmark
 
 Compare `caladan install-lockfile` to `bun install`.
