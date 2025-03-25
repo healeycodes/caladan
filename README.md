@@ -1,4 +1,8 @@
-# caladan
+# 📦 caladan
+
+> My blog post: [Installing NPM Packages Very Quickly](https://healeycodes.com/installing-npm-packages-very-quickly)
+
+<br>
 
 Very experimental package manager. Mostly for learning about the performance of installing npm packages.
 
