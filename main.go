@@ -205,7 +205,7 @@ func InstallLockFile(lockfilePath string) {
 
 	// Download and extract packages
 	fmt.Println("\nDownloading packages...")
-	downloadPackages(deps.AllPackages, nodeModulesPath)
+	DownloadPackages(deps.AllPackages, nodeModulesPath)
 
 	fmt.Println("\nInstallation complete!")
 }
@@ -254,8 +254,8 @@ func cleanNodeModules(nodeModulesPath string) error {
 	return nil
 }
 
-// downloadPackages downloads and extracts packages to node_modules
-func downloadPackages(packages map[string]PackageInfo, nodeModulesPath string) {
+// DownloadPackages downloads and extracts packages to node_modules
+func DownloadPackages(packages map[string]PackageInfo, nodeModulesPath string) {
 	// Setup HTTP client with timeout
 	client := &http.Client{
 		Timeout: 30 * time.Second,
