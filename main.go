@@ -32,13 +32,16 @@ type PackageLock struct {
 }
 
 type PackageInfo struct {
-	Version   string            `json:"version"`
-	Resolved  string            `json:"resolved,omitempty"`
-	Integrity string            `json:"integrity,omitempty"`
-	CPU       []string          `json:"cpu,omitempty"`
-	OS        []string          `json:"os,omitempty"`
-	Optional  bool              `json:"optional,omitempty"`
-	Bin       map[string]string `json:"bin,omitempty"`
+	Name            string            `json:"name"`
+	Version         string            `json:"version"`
+	Dependencies    map[string]string `json:"dependencies,omitempty"`
+	DevDependencies map[string]string `json:"devDependencies,omitempty"`
+	Resolved        string            `json:"resolved,omitempty"`
+	Integrity       string            `json:"integrity,omitempty"`
+	CPU             []string          `json:"cpu,omitempty"`
+	OS              []string          `json:"os,omitempty"`
+	Optional        bool              `json:"optional,omitempty"`
+	Bin             map[string]string `json:"bin,omitempty"`
 }
 
 // DepCollection holds all the extracted dependency information
@@ -48,6 +51,18 @@ type DepCollection struct {
 	OSSpecificPkgs  map[string][]string    // Map of OS to package names
 	CPUSpecificPkgs map[string][]string    // Map of CPU arch to package names
 	OptionalPkgs    []string               // List of optional packages
+}
+
+// PackageMetadata represents the metadata returned from the npm registry
+type PackageMetadata struct {
+	Name        string                 `json:"name"`
+	Versions    map[string]PackageInfo `json:"versions"`
+	DistTags    map[string]string      `json:"dist-tags"`
+	Description string                 `json:"description"`
+	Homepage    string                 `json:"homepage"`
+	Repository  interface{}            `json:"repository"`
+	Author      interface{}            `json:"author"`
+	License     string                 `json:"license"`
 }
 
 func main() {
@@ -64,6 +79,7 @@ func main() {
 
 	usage := `Usage:
   caladan install-lockfile <directory>
+  caladan install <directory>
   caladan run <directory> <script> <args>`
 
 	if len(os.Args) < 2 {
@@ -80,6 +96,9 @@ func main() {
 	if os.Args[1] == "install-lockfile" && len(os.Args) == 3 {
 		lockfilePath := filepath.Join(os.Args[2], "package-lock.json")
 		InstallLockFile(lockfilePath)
+		return
+	} else if os.Args[1] == "install" && len(os.Args) == 3 {
+		Install(os.Args[2])
 		return
 	} else if os.Args[1] == "run" && len(os.Args) >= 4 {
 		Run(os.Args[2], os.Args[3:])
@@ -122,6 +141,48 @@ func Run(directory string, args []string) {
 		fmt.Printf("Error executing script: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func Install(directory string) {
+	packageJSONPath := filepath.Join(directory, "package.json")
+	data, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		fmt.Printf("Error reading file: %v\n", err)
+		os.Exit(1)
+	}
+
+	var packageJSON PackageInfo
+	if err := json.Unmarshal(data, &packageJSON); err != nil {
+		fmt.Printf("Error parsing JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	initialDeps := []PackageInfo{}
+	for name, version := range packageJSON.Dependencies {
+		initialDeps = append(initialDeps, PackageInfo{Name: name, Version: version})
+	}
+	for name, version := range packageJSON.DevDependencies {
+		initialDeps = append(initialDeps, PackageInfo{Name: name, Version: version})
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	httpSemaphore := semaphore.NewWeighted(64)
+	resolver := NewPackageResolver(client, httpSemaphore)
+	depTree, err := resolver.ResolveDependencies(context.Background(), initialDeps)
+	if err != nil {
+		fmt.Printf("Error resolving dependencies: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err != nil {
+		fmt.Printf("Error building dependency tree: %v\n", err)
+		os.Exit(1)
+	}
+
+	renderedDepTree := RenderDepTree(depTree)
+	fmt.Println(renderedDepTree)
 }
 
 func InstallLockFile(lockfilePath string) {

@@ -1,3 +1,4 @@
+node_modules
 cpu_*.txt
 *.prof
 .DS_Store
