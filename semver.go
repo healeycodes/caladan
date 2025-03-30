@@ -35,13 +35,24 @@ func RunSemver(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// IsValidSemver returns true if the version string can be coerced into a valid semver
+func IsValidSemver(version string) bool {
+	_, err := RunSemver("-c", version)
+	return err == nil
+}
+
 // GetMatchingVersions returns all versions that match the given version string
-func GetMatchingVersions(version string, versions []string) (error, []string) {
+func GetMatchingVersions(version string, versions []string) ([]string, error) {
+	// Always try version range matching first
 	versionArgs := []string{"-r", version}
 	versionArgs = append(versionArgs, versions...)
 	matchingVersions, err := RunSemver(versionArgs...)
+
+	// If it fails, it could be a dist tag or invalid version
+	// Let the caller handle the error and check for dist tags
 	if err != nil {
-		return err, []string{}
+		return []string{}, err
 	}
-	return nil, strings.Split(matchingVersions, "\n")
+
+	return strings.Split(matchingVersions, "\n"), nil
 }

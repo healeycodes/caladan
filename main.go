@@ -32,16 +32,25 @@ type PackageLock struct {
 }
 
 type PackageInfo struct {
-	Name            string            `json:"name"`
-	Version         string            `json:"version"`
-	Dependencies    map[string]string `json:"dependencies,omitempty"`
-	DevDependencies map[string]string `json:"devDependencies,omitempty"`
-	Resolved        string            `json:"resolved,omitempty"`
-	Integrity       string            `json:"integrity,omitempty"`
-	CPU             []string          `json:"cpu,omitempty"`
-	OS              []string          `json:"os,omitempty"`
-	Optional        bool              `json:"optional,omitempty"`
-	Bin             map[string]string `json:"bin,omitempty"`
+	Name                 string                 `json:"name"`
+	Version              string                 `json:"version"`
+	Dependencies         map[string]string      `json:"dependencies,omitempty"`
+	DevDependencies      map[string]string      `json:"devDependencies,omitempty"`
+	PeerDependencies     map[string]string      `json:"peerDependencies,omitempty"`
+	OptionalDependencies map[string]string      `json:"optionalDependencies,omitempty"`
+	Resolved             string                 `json:"resolved,omitempty"`
+	ResolvedDeps         map[string]PackageInfo `json:"-"`
+	Integrity            string                 `json:"integrity,omitempty"`
+	CPU                  []string               `json:"cpu,omitempty"`
+	OS                   []string               `json:"os,omitempty"`
+	Optional             bool                   `json:"optional,omitempty"`
+	Bin                  interface{}            `json:"bin,omitempty"`
+	License              interface{}            `json:"license,omitempty"`
+	Engines              map[string]string      `json:"engines,omitempty"`
+	Dist                 struct {
+		Tarball   string `json:"tarball"`
+		Integrity string `json:"integrity"`
+	} `json:"dist"`
 }
 
 // DepCollection holds all the extracted dependency information
@@ -95,13 +104,25 @@ func main() {
 
 	if os.Args[1] == "install-lockfile" && len(os.Args) == 3 {
 		lockfilePath := filepath.Join(os.Args[2], "package-lock.json")
-		InstallLockFile(lockfilePath)
+		err := InstallLockFile(lockfilePath)
+		if err != nil {
+			fmt.Printf("Error installing lockfile: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	} else if os.Args[1] == "install" && len(os.Args) == 3 {
-		Install(os.Args[2])
+		err := Install(os.Args[2])
+		if err != nil {
+			fmt.Printf("Error installing: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	} else if os.Args[1] == "run" && len(os.Args) >= 4 {
-		Run(os.Args[2], os.Args[3:])
+		err := Run(os.Args[2], os.Args[3:])
+		if err != nil {
+			fmt.Printf("Error running script: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -110,7 +131,7 @@ func main() {
 	os.Exit(1)
 }
 
-func Run(directory string, args []string) {
+func Run(directory string, args []string) error {
 	scriptName := args[0]
 	scriptArgs := args[1:]
 
@@ -139,22 +160,24 @@ func Run(directory string, args []string) {
 		}
 		// If not an ExitError, something else went wrong
 		fmt.Printf("Error executing script: %v\n", err)
-		os.Exit(1)
+		return err
 	}
+
+	return nil
 }
 
-func Install(directory string) {
+func Install(directory string) error {
 	packageJSONPath := filepath.Join(directory, "package.json")
 	data, err := os.ReadFile(packageJSONPath)
 	if err != nil {
 		fmt.Printf("Error reading file: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	var packageJSON PackageInfo
 	if err := json.Unmarshal(data, &packageJSON); err != nil {
 		fmt.Printf("Error parsing JSON: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	initialDeps := []PackageInfo{}
@@ -165,6 +188,7 @@ func Install(directory string) {
 		initialDeps = append(initialDeps, PackageInfo{Name: name, Version: version})
 	}
 
+	// Resolve dependencies
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
@@ -176,26 +200,54 @@ func Install(directory string) {
 		os.Exit(1)
 	}
 
+	// Show tree (we might want to update this to show the hoisted structure)
+	renderedDepTree := RenderDepTree(depTree)
+	fmt.Println("Dependency tree:")
+	fmt.Println(renderedDepTree)
+	fmt.Println("")
+
+	// Calculate hoisted install paths
+	hoistedTree := HoistDependencies(depTree)
+	renderedHoistedTree := RenderDepTree(hoistedTree)
+	fmt.Println("Hoisted tree:")
+	fmt.Println(renderedHoistedTree)
+	fmt.Println("")
+
+	lockfile, err := GenerateLockFile(hoistedTree)
 	if err != nil {
-		fmt.Printf("Error building dependency tree: %v\n", err)
+		fmt.Printf("Error generating lockfile: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Lockfile:")
+	fmt.Println(lockfile)
+
+	lockfilePath := filepath.Join(directory, "package-lock.json")
+	err = os.WriteFile(lockfilePath, []byte(lockfile), 0644)
+	if err != nil {
+		fmt.Printf("Error writing lockfile: %v\n", err)
 		os.Exit(1)
 	}
 
-	renderedDepTree := RenderDepTree(depTree)
-	fmt.Println(renderedDepTree)
+	err = InstallLockFile(lockfilePath)
+	if err != nil {
+		fmt.Printf("Error installing lockfile: %v\n", err)
+		return err
+	}
+
+	return nil
 }
 
-func InstallLockFile(lockfilePath string) {
+func InstallLockFile(lockfilePath string) error {
 	data, err := os.ReadFile(lockfilePath)
 	if err != nil {
 		fmt.Printf("Error reading file: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	var packageLock PackageLock
 	if err := json.Unmarshal(data, &packageLock); err != nil {
 		fmt.Printf("Error parsing JSON: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	// Create the collection to hold all dependency info
@@ -255,13 +307,13 @@ func InstallLockFile(lockfilePath string) {
 	nodeModulesPath := fmt.Sprintf("%s/node_modules", workDir)
 	if err := cleanNodeModules(nodeModulesPath); err != nil {
 		fmt.Printf("Error cleaning node_modules: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	// Create the node_modules directory
 	if err := os.MkdirAll(nodeModulesPath, 0755); err != nil {
 		fmt.Printf("Error creating node_modules directory: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	// Download and extract packages
@@ -269,6 +321,8 @@ func InstallLockFile(lockfilePath string) {
 	DownloadPackages(deps.AllPackages, nodeModulesPath)
 
 	fmt.Println("\nInstallation complete!")
+
+	return nil
 }
 
 // isWindows detects if the program is running on Windows
@@ -375,8 +429,7 @@ func DownloadPackages(packages map[string]PackageInfo, nodeModulesPath string) {
 				}
 			}
 
-			// Extract package name from full path if it includes node_modules prefix
-			// e.g., "node_modules/react" -> "react" or "@types/react" -> "@types/react"
+			// Extract normalized package name
 			normalizedPkgName := pkgName
 			if strings.HasPrefix(normalizedPkgName, "node_modules/") {
 				normalizedPkgName = strings.TrimPrefix(normalizedPkgName, "node_modules/")
@@ -389,9 +442,14 @@ func DownloadPackages(packages map[string]PackageInfo, nodeModulesPath string) {
 				return fmt.Errorf("error creating directory for %s: %v\n", normalizedPkgName, err)
 			}
 
-			// Download the package tarball
+			// Download and extract the package tarball
 			err := downloadAndExtractPackage(ctx, httpSemaphore, tarSemaphore, client, pkgInfo.Resolved, pkgInfo.Integrity, pkgPath)
 			if err != nil {
+				if pkgInfo.Optional {
+					// For optional packages, just log the error and continue
+					fmt.Printf("Warning: Optional package %s failed to install: %v\n", normalizedPkgName, err)
+					return nil
+				}
 				return fmt.Errorf("error downloading/extracting %s: %v\n", normalizedPkgName, err)
 			}
 
@@ -629,18 +687,36 @@ func setupBinScripts(packages map[string]PackageInfo, nodeModulesPath string) {
 	fmt.Println("\nSetting up bin scripts...")
 
 	for pkgName, pkgInfo := range packages {
-		if len(pkgInfo.Bin) == 0 {
-			// Check for package.json to extract bin info
-			packageJSONPath := filepath.Join(nodeModulesPath, pkgName, "package.json")
-			binInfo, err := readPackageJSONBin(packageJSONPath, pkgName)
-			if err != nil || len(binInfo) == 0 {
-				continue // No bin scripts for this package
+		binMap := make(map[string]string)
+
+		// Handle bin field which can be string or map
+		switch v := pkgInfo.Bin.(type) {
+		case string:
+			// If bin is a string, use the package name as the command name
+			name := pkgInfo.Name
+			if name == "" {
+				// Extract name from package path if not specified
+				parts := strings.Split(pkgName, "/")
+				name = parts[len(parts)-1]
 			}
-			pkgInfo.Bin = binInfo
+			binMap[name] = v
+		case map[string]interface{}:
+			// If bin is a map, convert it to our format
+			for cmd, script := range v {
+				if scriptPath, ok := script.(string); ok {
+					binMap[cmd] = scriptPath
+				}
+			}
+		case nil:
+			// Check package.json if no bin field present
+			packageJSONPath := filepath.Join(nodeModulesPath, pkgName, "package.json")
+			if binInfo, err := readPackageJSONBin(packageJSONPath, pkgName); err == nil {
+				binMap = binInfo
+			}
 		}
 
 		// Process bin entries
-		for cmdName, scriptPath := range pkgInfo.Bin {
+		for cmdName, scriptPath := range binMap {
 			// Skip if empty
 			if cmdName == "" || scriptPath == "" {
 				continue
