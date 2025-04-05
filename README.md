@@ -45,6 +45,14 @@ This doesn't affect `install-lockfile` as we don't resolve versions (it works li
 
 <br>
 
+## Tests
+
+```bash
+go test ./...
+```
+
+<br>
+
 ## Benchmark
 
 Compare `caladan install-lockfile` to `bun install`.
