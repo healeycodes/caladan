@@ -1,0 +1,22 @@
+{
+  "name": "caladan",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/healeycodes/caladan.git"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/healeycodes/caladan/issues"
+  },
+  "homepage": "https://github.com/healeycodes/caladan#readme",
+  "dependencies": {
+    "semver": "^7.7.1"
+  }
+}
